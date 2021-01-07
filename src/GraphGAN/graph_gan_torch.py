@@ -1,21 +1,25 @@
 import torch
-import pickle
-import numpy as np
 import os
 import collections
-import multiprocessing
-import config
-import utils
-import gen_torch
-import dis_torch
-from evaluation import link_prediction as lp
 import tqdm
+import multiprocessing
+import pickle
+import numpy as np
+from src.GraphGAN import config
+from src.GraphGAN import gen_torch
+from src.GraphGAN import dis_torch
+from src.GraphGAN import utils
+from src.evaluation import link_prediction as lp
+
+torch.backends.cudnn.deterministic=True
 
 class GraphGan(object):
     def __init__(self):
         print("reading graphs...")
         self.n_node, self.graph = utils.read_edges(config.train_filename, config.test_filename)
         self.root_nodes = [i for i in range(self.n_node)]
+
+        # print(self.n_node, self.graph)
 
         print("reading initial embeddings...")
 
@@ -26,6 +30,7 @@ class GraphGan(object):
                                                        n_node=self.n_node,
                                                        n_embed=config.n_emb)
         self.trees = None
+        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         if os.path.isfile(config.cache_filename):
             print("reading BFS-trees from cache...")
             pickle_file = open(config.cache_filename, 'rb')
@@ -46,6 +51,7 @@ class GraphGan(object):
         self.generator = None
         self.build_generator()
         self.build_discriminator()
+        # self.device = torch.device('cuda:0')
         #
         # self.latest_checkpoint = tf.train.latest_checkpoint(config.model_log)
         # self.saver = tf.train.Saver()
@@ -55,7 +61,6 @@ class GraphGan(object):
         # self.init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
         # self.sess = tf.Session(config=self.config)
         # self.sess.run(self.init_op)
-        # print(",,,,,,: ", self.trees)
 
     def construct_trees_with_mp(self, nodes):
         """use the multiprocessing to speed up trees construction
@@ -92,7 +97,7 @@ class GraphGan(object):
             # tree = {0: {0 : [nb_1, nb_2, ..., nb_k],  nb_1: [0, ...]}, 1 : {1: [nb_1,...], nb_1 : [..]},...}
             trees[root] = {}
             trees[root][root] = [root]
-            print('test...', trees[root][root])
+            # print('test...', trees[root][root])
             used_nodes = set()
             # queue has the form as following queue([root] for root in tqdm.tqdm(nodes)
             # with each node, we construct the tree rooted at that node, denoted as queue(['root'])
@@ -118,6 +123,8 @@ class GraphGan(object):
         self.generator = gen_torch.Generator(n_node=self.n_node, node_emd_init=self.node_embed_init_g)
 
     def train(self):
+        self.write_embeddings_to_file()
+        self.evaluation(self)
         print("start training...")
         for epoch in range(config.n_epochs):
             print("epoch %d" % epoch)
@@ -130,10 +137,13 @@ class GraphGan(object):
             center_nodes = []
             neighbor_nodes = []
             labels = []
+            # print("check memory: ", torch.cuda.memory_allocated())
             for d_epoch in range(config.n_epochs_dis):
                 # generate new nodes for the discriminator for every dis_interval iterations
+                print(d_epoch, "check memory: ", torch.cuda.memory_allocated())
                 if d_epoch % config.dis_interval == 0:
                     center_nodes, neighbor_nodes, labels = self.prepare_data_for_d()
+                print("pass prepare d")
                 # print('center_nodes: ', len(center_nodes))
                 # print('neighbor_nodes: ', len(neighbor_nodes))
                 # print('labels', len(labels))
@@ -150,13 +160,16 @@ class GraphGan(object):
                     #                          self.discriminator.label: np.array(labels[start:end])})
 
                     self.discriminator.train(center_nodes[start:end], neighbor_nodes[start:end], labels[start:end])
-                # print("pass d")
+            # print("pass d")
 
             # G-steps
             node_1 = []
             node_2 = []
             reward = []
+            print("check memory after training D: ", torch.cuda.memory_allocated())
+            
             for g_epoch in range(config.n_epochs_gen):
+                print(g_epoch, "check memory: ", torch.cuda.memory_allocated())
                 if g_epoch % config.gen_interval == 0:
                     node_1, node_2, reward = self.prepare_data_for_g()
                 print("Pass prepare g")
@@ -172,10 +185,10 @@ class GraphGan(object):
                     #                          self.generator.node_neighbor_id: np.array(node_2[start:end]),
                     #                          self.generator.reward: np.array(reward[start:end])})
                     self.generator.train(node_1[start:end], node_2[start:end], reward[start:end])
-                print("pass g")
+            # print("pass g")
 
-            # self.write_embeddings_to_file()
-            # self.evaluation(self)
+            self.write_embeddings_to_file()
+            self.evaluation(self)
         print("training completes")
 
     def prepare_data_for_d(self):
@@ -189,6 +202,8 @@ class GraphGan(object):
                 # self.graph[i] = [neighbors of i]
                 pos = self.graph[i]
                 neg, _ = self.sample(i, self.trees[i], len(pos), for_d=True)
+                # print("tree_i_d: ", self.trees[i])
+                # print("neg_samples: ", neg)
                 # print("neg is: ", neg)
                 if len(pos) != 0 and neg is not None:
                     # positive samples
@@ -212,7 +227,7 @@ class GraphGan(object):
                 sample, paths_from_i = self.sample(i, self.trees[i], config.n_sample_gen, for_d=False)
                 if paths_from_i is not None:
                     paths.extend(paths_from_i)
-                # for each root, we generate 20 samples, each sample is equal to one path from root to that sample
+        # for each root, we generate 20 samples, each sample is equal to one path from root to that sample
         # So, we will get maximum (num_root x 20) paths
         # path is a list with length = (N x num_sample), with num_sample = 20
         # paths =[[path_root1_to_sample1],[path_root1_to_sample2],....,[path_root1_to_sample20],
@@ -281,17 +296,17 @@ class GraphGan(object):
                         node_neighbor.remove(root)
 
                 # we retrieve embeddings corresponding to current node's neighbors
-                # the multiply of g_v with shape (n_node, 1) and g_vi with shape(n_node, 1) has the shape [n_node, n_node]
-                # to calculate the multiply of g_v and g_vi: we calculate the multiply of embedding_matrix with shape(n_node, 50) and its transpose
+                # the multiply of g_v with shape (1, 50) and g_vi with shape(1, 50) is a scala
+                # to calculate the multiply of g_v and g_vi: we calculate the "multiplication" (inner product) between embedding_matrix with shape(n_node, 50) and its transpose
                 # then saved the result in self.score with shape (n_node, n_node) in dis_torch.py
-                # then we retrieve an embedding that equal to the multiply of g_v(current node) to one of its neighbor g_vi. To do that,
-                # we do as following: all_score[current_id][neighbor_id]
+                # all_score has the shape = (5254, 5254), each row is a list of scala, each scala is the "multiplication" (inner product) between a particular node to an other node in the graph
                 # due to for each current_node, we have a list of its neighbors, saved in [node_neighbor]
-                # so that, we can retrieve a list of multiply of g_v and its neighbors, as the following:
+                # we can retrieve a list of scalas that equal to the "multiplications" (inner product) between g_v(current node) to its neighbor g_vi
+                # to do that, we have:
                 relevance_probability = all_score[current_node][node_neighbor]
 
                 # convert tensor to numpy array
-                relevance_probability = relevance_probability.detach().numpy()
+                relevance_probability = relevance_probability.cpu().detach().numpy()
 
                 # finally, applying softmax function, we get the relevance probability of current_node and its neighbors, as formed in the paper
                 relevance_probability = utils.softmax(relevance_probability)
@@ -330,6 +345,34 @@ class GraphGan(object):
                 node = path[j]
                 pairs.append([center_node, node])
         return pairs
+
+    def write_embeddings_to_file(self):
+      """write embeddings of the generator and the discriminator to files"""
+      modes = [self.generator, self.discriminator]
+      for i in range(2):
+          embedding_matrix = modes[i].embedding_matrix
+          embedding_matrix = embedding_matrix.detach().to('cpu').numpy()
+          index = np.array(range(self.n_node)).reshape(-1, 1)
+          embedding_matrix = np.hstack([index, embedding_matrix])
+          embedding_list = embedding_matrix.tolist()
+          embedding_str = [str(int(emb[0])) + "\t" + "\t".join([str(x) for x in emb[1:]]) + "\n" 
+                           for emb in embedding_list]
+          with open(config.emb_filenames[i], "w+") as f:
+              lines = [str(self.n_node) + "\t" + str(config.n_emb) + "\n"] + embedding_str
+              f.writelines(lines)
+    
+    @staticmethod
+    def evaluation(self):
+        results = []
+        if config.app == "link_prediction":
+            for i in range(2):
+                lpe = lp.LinkPredictEval(
+                    config.emb_filenames[i], config.test_filename, config.test_neg_filename, self.n_node, config.n_emb)
+                result = lpe.eval_link_prediction()
+                results.append(config.modes[i] + ":" + str(result) + "\n")
+        with open(config.result_filename, mode="a+") as f:
+            f.writelines(results)
+
 
 
 if __name__ == "__main__":
