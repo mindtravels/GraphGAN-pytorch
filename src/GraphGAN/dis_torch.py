@@ -43,12 +43,12 @@ class Discriminator():
         self.score = torch.sum(self.node_embedding * self.node_neighbor_embedding, 1) + self.bias
         self.score = torch.sigmoid(self.score).type(torch.FloatTensor)
         self.score = torch.cuda.FloatTensor(self.score.cuda())
+        self.optimizer.zero_grad()
         loss = torch.nn.BCELoss()
         l1_loss = torch.sum(loss(self.score, torch.cuda.FloatTensor(label)))
         l2 = config.lambda_dis * (0.5 * torch.sum(self.node_neighbor_embedding ** 2) + 0.5 * torch.sum(self.node_embedding ** 2) + 0.5 * torch.sum(self.bias ** 2))
         self.d_loss = l1_loss + l2
         self.d_loss.backward()
-        self.optimizer.zero_grad()
         self.optimizer.step()
 
     def forward(self, node_id, node_neighbor_id):
