@@ -51,6 +51,7 @@ class Generator():
 
         self.score = torch.sum(self.node_embedding * self.node_neighbor_embedding, 1) + self.bias
         self.prob = torch.clamp(torch.sigmoid(self.score), 1e-5, 1)
+        optimizer.zero_grad()
         l1_loss = -torch.mean(torch.log(self.prob) * self.reward)
         l2 = config.lambda_gen * (0.5 * torch.sum(
             self.node_neighbor_embedding ** 2) + 0.5 * torch.sum(
