@@ -51,16 +51,6 @@ class GraphGan(object):
         self.generator = None
         self.build_generator()
         self.build_discriminator()
-        # self.device = torch.device('cuda:0')
-        #
-        # self.latest_checkpoint = tf.train.latest_checkpoint(config.model_log)
-        # self.saver = tf.train.Saver()
-        #
-        # self.config = tf.ConfigProto()
-        # self.config.gpu_options.allow_growth = True
-        # self.init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-        # self.sess = tf.Session(config=self.config)
-        # self.sess.run(self.init_op)
 
     def construct_trees_with_mp(self, nodes):
         """use the multiprocessing to speed up trees construction
@@ -144,21 +134,12 @@ class GraphGan(object):
                 if d_epoch % config.dis_interval == 0:
                     center_nodes, neighbor_nodes, labels = self.prepare_data_for_d()
                 print("pass prepare d")
-                # print('center_nodes: ', len(center_nodes))
-                # print('neighbor_nodes: ', len(neighbor_nodes))
-                # print('labels', len(labels))
-                # print("Pass prepare d")
                 # training
                 train_size = len(center_nodes)
                 start_list = list(range(0, train_size, config.batch_size_dis))
                 np.random.shuffle(start_list)
                 for start in start_list:
                     end = start + config.batch_size_dis
-                    # self.sess.run(self.discriminator.d_updates,
-                    #               feed_dict={self.discriminator.node_id: np.array(center_nodes[start:end]),
-                    #                          self.discriminator.node_neighbor_id: np.array(neighbor_nodes[start:end]),
-                    #                          self.discriminator.label: np.array(labels[start:end])})
-
                     self.discriminator.train(center_nodes[start:end], neighbor_nodes[start:end], labels[start:end])
             # print("pass d")
 
@@ -180,10 +161,6 @@ class GraphGan(object):
                 np.random.shuffle(start_list)
                 for start in start_list:
                     end = start + config.batch_size_gen
-                    # self.sess.run(self.generator.g_updates,
-                    #               feed_dict={self.generator.node_id: np.array(node_1[start:end]),
-                    #                          self.generator.node_neighbor_id: np.array(node_2[start:end]),
-                    #                          self.generator.reward: np.array(reward[start:end])})
                     self.generator.train(node_1[start:end], node_2[start:end], reward[start:end])
             # print("pass g")
 
@@ -376,7 +353,6 @@ class GraphGan(object):
 
 
 if __name__ == "__main__":
-    # print(config.train_filename)
     graph_gan = GraphGan()
     graph_gan.train()
 
