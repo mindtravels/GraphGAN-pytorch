@@ -287,14 +287,12 @@ class GraphGan(object):
 
                 # finally, applying softmax function, we get the relevance probability of current_node and its neighbors, as formed in the paper
                 relevance_probability = utils.softmax(relevance_probability)
-                # print("...", node_neighbor)
+               
                 # pick a random node from its neighbors based on relevance_probability
                 next_node = np.random.choice(node_neighbor, size=1, p=relevance_probability)[0]  # select next node
                 # print("???", next_node)
                 paths[n].append(next_node)
                 if next_node == previous_node:  # terminating condition
-                    # print("found!")
-                    # print(previous_node, next_node)
                     samples.append(current_node)
                     break
                 previous_node = current_node
