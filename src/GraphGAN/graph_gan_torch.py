@@ -113,17 +113,36 @@ class GraphGan(object):
         self.generator = gen_torch.Generator(n_node=self.n_node, node_emd_init=self.node_embed_init_g)
 
     def train(self):
+        # load the latest checkpoint if exists:
+        dir = config.model_log 
+        paths = os.listdir(dir)
+        if (len(paths) != 0):
+            checkpoint = torch.load(os.path.join(dir, paths[len(paths)-1]))
+            start_epoch = checkpoint['epoch']
+            self.discriminator.optimizer.load_state_dict(checkpoint['optimizerD_state_dict'])
+            self.generator.optimizer.load_state_dict(checkpoint['optimizerG_state_dict'])
+            d_loss = checkpoint['lossD']
+            print("d_loss: ", d_loss)
+            g_loss = checkpoint['lossG']
+            
         self.write_embeddings_to_file()
         self.evaluation(self)
         print("start training...")
+        
         for epoch in range(config.n_epochs):
             print("epoch %d" % epoch)
 
-            # # save the model
-            # if epoch > 0 and epoch % config.save_steps == 0:
-            #     self.saver.save(self.sess, config.model_log + "model.checkpoint")
-
-            # D-steps
+            # save the model
+            torch.save({
+            'epoch' : epoch,
+            # 'modelD_state_dict' : self.discriminator.state_dict(),
+            # 'modelG_state_dict' : self.generator.state_dict(),
+            'optimizerD_state_dict' : self.discriminator.optimizer.state_dict(),
+            'optimizerG_state_dict' : self.generator.optimizer.state_dict(),
+            'lossD' : self.discriminator.d_loss,
+            'lossG' : self.generator.g_loss    
+            }, config.model_log + 'model.checkpoint_{}'.format(epoch)+'.tar')
+            
             center_nodes = []
             neighbor_nodes = []
             labels = []
