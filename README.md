@@ -42,5 +42,5 @@ The input data should be an undirected graph in which node IDs start from *0* to
 ### Basic usage
 ```mkdir cache```   
 ```cd src/GraphGAN```  
-```python graph_gan.py```
+```python graph_gan_torch.py```
 
